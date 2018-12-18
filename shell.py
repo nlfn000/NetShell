@@ -25,10 +25,12 @@ class NetShell:
             sav = torch.load(f)
         net = sav['net']
         ns = NetShell(net)
-
         state = sav.get('state')
         if state:
             ns.state = state
+        optimizer = sav.get('optimizer')
+        if optimizer:
+            ns.optimizer.load_state_dict(optimizer)
         return ns
 
     def __init__(self, net, Dataset=None, criterion=torch.nn.CrossEntropyLoss()):
@@ -76,7 +78,7 @@ class NetShell:
         }
         self.early_stop_max = 5
 
-    def train(self, batch_size=8, num_workers=2, checkpoint=2000, early_stop=False, sampling_test=True):
+    def train(self, batch_size=8, num_workers=2, checkpoint=2000, sampling_test=True, early_stop=False):
         trainloader = torch.utils.data.DataLoader(self.dataset['train'], batch_size=batch_size,
                                                   shuffle=self.shuffle['train'], num_workers=num_workers)
         base_epoch = self.state['epoch']
@@ -87,8 +89,8 @@ class NetShell:
         checkpoint_timer = 0
         if cuda:
             net.cuda()
-        early_stop_flag = 0
-        early_stop_last_loss = 0
+        es_history = 0
+        es_flag = 0
         for epoch in range(base_epoch, self.max_epoch):
             then = datetime.now()
             running_loss = 0
@@ -115,21 +117,21 @@ class NetShell:
                     if self.save_every['checkpoint'] and checkpoint_timer % self.save_every['checkpoint'] == 0:
                         self.state['iter'] = itr
                         self.save()
-                    if early_stop:
-                        if average_loss >= early_stop_last_loss:
-                            early_stop_flag += 1
-                            if early_stop_flag > self.early_stop_max:
-                                return
-                        else:
-                            early_stop_flag = 0
-                        early_stop_last_loss = average_loss
                 total_itr = itr
             self.state['iter'] = total_itr
             self.state['epoch'] = epoch + 1
             if self.save_every['epoch'] and (epoch + 1) % self.save_every['epoch'] == 0:
                 self.save()
             if sampling_test:
-                self.test(batch_size=8, num_workers=2)
+                accuracy = self.test(batch_size=8, num_workers=2)
+                if early_stop:
+                    if accuracy <= es_history:
+                        es_flag += 1
+                        if es_flag >= self.early_stop_max:
+                            return
+                    else:
+                        es_flag = 0
+                    es_history = accuracy
 
     def test(self, batch_size=8, num_workers=2):
         testloader = torch.utils.data.DataLoader(self.dataset['test'], batch_size=batch_size,
@@ -150,13 +152,14 @@ class NetShell:
             _, predicted = torch.max(ys.data, 1)
             total += truth.size(0)
             correct += (predicted == truth).sum()
-        print('Accuracy of the network on the test dataset: %d %%' % (100 * correct / total))
-        return 100 * correct / total
+        acc = 100.0 * correct.float() / total
+        print(f'Accuracy of the network on the test dataset: {acc}.2f%')
+        return acc
 
     def load_dataset(self, Dataset):
         pass
 
-    def save(self, save_optimizer=False, save_state=True):
+    def save(self, save_optimizer=True, save_state=True):
         pkg = {'net': self.net}
         suffix = 'n'
         if save_optimizer:
@@ -180,10 +183,12 @@ class NetShell:
 
 
 if __name__ == '__main__':
-    net = LeNet()
-    ns = NetShell(net)
-    ns.save_every['epoch'] = 10
-    ns.train(batch_size=64, checkpoint=400, early_stop=True)
+    # net = LeNet()
+    # ns = NetShell(net)
 
-    # ns = NetShell.sav_loader(auto_load_dir='cookie/save/')
-    # ns.train(batch_size=64, checkpoint=400)
+    ns = NetShell.sav_loader(auto_load_dir='cookie/save/')
+    ns.test()
+
+    # ns.save_every['epoch'] = 10
+    # ns.early_stop_max = 2
+    # ns.train(batch_size=64, checkpoint=400, early_stop=True)
