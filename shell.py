@@ -16,7 +16,7 @@ class NetShell:
         [transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
     @staticmethod
-    def sav_loader(path=None, auto_load_dir=None, Dataset=None):
+    def sav_loader(path=None, auto_load_dir=None, Dataset=None,use_optimizer=False):
         if auto_load_dir:
             files = os.listdir(auto_load_dir)
             files.sort()
@@ -29,7 +29,7 @@ class NetShell:
         if state:
             ns.state = state
         optimizer = sav.get('optimizer')
-        if optimizer:
+        if use_optimizer and optimizer:
             ns.optimizer.load_state_dict(optimizer)
         return ns
 
