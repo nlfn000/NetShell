@@ -15,12 +15,75 @@ class NetShell:
     default_transform = transforms.Compose(
         [transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
+    class _Path:
+        def __init__(self):
+            self.root = '../..'
+            self.dataset_root = 'cookie/data'
+            self.dataset_dir = 'CIFAR10'
+            self.save_root = 'cookie/save'
+            self.save_dir = None
+
+        def dataset_path(self):
+            dataset_path = f'{self.root}/{self.dataset_root}'
+            if self.dataset_dir:
+                dataset_path = dataset_path + '/' + self.dataset_dir
+            if not os.path.exists(dataset_path):
+                os.makedirs(dataset_path)
+            return dataset_path
+
+        def save_path(self):
+            save_path = f'{self.root}/{self.save_root}'
+            if self.save_dir:
+                save_path = save_path + '/' + self.save_dir
+            if not os.path.exists(save_path):
+                os.makedirs(save_path)
+            return save_path
+
+    class _Train:
+        def __init__(self):
+            self.transform = NetShell.default_transform
+            self.shuffle = True
+            self.max_epoch = 200
+            self.save_checkpoint = -1
+            self.save_epoch = -1
+            self.early_stop_max = 5
+
+    class _Test:
+        def __init__(self):
+            self.transform = NetShell.default_transform
+            self.shuffle = True
+
+    class _Save:
+        def __init__(self):
+            self.optimizer = True
+            self.state = True
+
+    class _Options:
+        def __init__(self):
+            self.train = NetShell._Train()
+            self.test = NetShell._Test()
+            self.save = NetShell._Save()
+
+    def __init__(self, net, Dataset=None, criterion=torch.nn.CrossEntropyLoss()):
+        self.net = net
+        self.cuda = True
+        self.options = NetShell._Options()
+        self.path = NetShell._Path()
+        self.criterion = criterion
+        self.Dataset = Dataset if Dataset else torchvision.datasets.CIFAR10
+        self.optimizer = optim.SGD(self.net.parameters(), lr=0.001, momentum=0.9)
+        self.state = {
+            'epoch': 0,
+            'iter': 0,
+            'special_mark': None,
+        }
+
     @staticmethod
-    def sav_loader(path=None, auto_load_dir=None, Dataset=None,use_optimizer=False):
-        if auto_load_dir:
-            files = os.listdir(auto_load_dir)
+    def sav_loader(path=None, auto_load_path=None, Dataset=None, load_optimizer=False):
+        if auto_load_path:
+            files = os.listdir(auto_load_path)
             files.sort()
-            path = f'{auto_load_dir}/{files[-1]}'
+            path = f'{auto_load_path}/{files[-1]}'
         with open(path, 'rb') as f:
             sav = torch.load(f)
         net = sav['net']
@@ -29,69 +92,33 @@ class NetShell:
         if state:
             ns.state = state
         optimizer = sav.get('optimizer')
-        if use_optimizer and optimizer:
+        if load_optimizer and optimizer:
             ns.optimizer.load_state_dict(optimizer)
         return ns
 
-    def __init__(self, net, Dataset=None, save_path=None, criterion=torch.nn.CrossEntropyLoss()):
-        self.net = net
-        self.optimizer = optim.SGD(self.net.parameters(), lr=0.001, momentum=0.9)
-        self.criterion = criterion
-        self.path = {
-            'dataset': None,
-            'dataset_root': 'cookie/data',
-            'save': save_path if save_path else 'cookie/save',
-        }
-        for fp in self.path.values():
-            if fp and not os.path.exists(fp):
-                os.makedirs(fp)
-
-        self.transform = {
-            'train': NetShell.default_transform,
-            'test': NetShell.default_transform,
-        }
-        self.dataset = {
-            'train': None,
-            'test': None,
-        }
-        if Dataset:
-            self.load_dataset(Dataset)
-        else:
-            self.dataset['train'] = torchvision.datasets.CIFAR10(root=self.path['dataset_root'],
-                                                                 transform=self.transform['train'], download=True)
-            self.dataset['test'] = torchvision.datasets.CIFAR10(root=self.path['dataset_root'], train=False,
-                                                                transform=self.transform['test'], download=True)
-
-        self.shuffle = {
-            'train': False,
-            'test': False,
-        }
-        self.state = {
-            'epoch': 0,
-            'iter': 0,
-        }
-        self.max_epoch = 200
-        self.cuda = True
-        self.save_every = {
-            'checkpoint': False,
-            'epoch': 1,
-        }
-        self.early_stop_max = 5
-
     def train(self, batch_size=8, num_workers=2, checkpoint=2000, sampling_test=True, early_stop=False):
-        trainloader = torch.utils.data.DataLoader(self.dataset['train'], batch_size=batch_size,
-                                                  shuffle=self.shuffle['train'], num_workers=num_workers)
+        if self.Dataset:
+            dataset = self.Dataset(root=self.path.dataset_path(), transform=self.options.train.transform, train=True)
+        else:
+            dataset = torchvision.datasets.CIFAR10(root=self.path.dataset_path(),
+                                                   transform=self.options.train.transform,
+                                                   download=True)
+
+        trainloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
+                                                  shuffle=self.options.train.shuffle, num_workers=num_workers)
         base_epoch = self.state['epoch']
         cuda = self.cuda
         net = self.net
         optimizer = self.optimizer
         criterion = self.criterion
         checkpoint_timer = 0
+        checkpoint_save = self.options.train.save_checkpoint
+        epoch_save = self.options.train.save_epoch
         if cuda:
             net.cuda()
         es_history = 0
         es_flag = 0
-        for epoch in range(base_epoch, self.max_epoch):
+        for epoch in range(base_epoch, self.options.train.max_epoch):
             then = datetime.now()
             running_loss = 0
             total_itr = 0
@@ -114,28 +141,36 @@ class NetShell:
                     running_loss = 0.0
                     then = now
                     checkpoint_timer += 1
-                    if self.save_every['checkpoint'] and checkpoint_timer % self.save_every['checkpoint'] == 0:
+                    if checkpoint_save > 0 and checkpoint_timer % checkpoint_save == 0:
                         self.state['iter'] = itr
                         self.save()
                 total_itr = itr
             self.state['iter'] = total_itr
             self.state['epoch'] = epoch + 1
-            if self.save_every['epoch'] and (epoch + 1) % self.save_every['epoch'] == 0:
+            if epoch_save > 0 and (epoch + 1) % epoch_save == 0:
                 self.save()
             if sampling_test:
-                accuracy = self.test(batch_size=8, num_workers=2)
+                accuracy = self.test(batch_size=batch_size, num_workers=num_workers)
                 if early_stop:
                     if accuracy <= es_history:
                         es_flag += 1
-                        if es_flag >= self.early_stop_max:
+                        if es_flag >= self.options.train.early_stop_max:
                             return
                     else:
                         es_flag = 0
                     es_history = accuracy
 
     def test(self, batch_size=8, num_workers=2):
-        testloader = torch.utils.data.DataLoader(self.dataset['test'], batch_size=batch_size,
-                                                 shuffle=self.shuffle['test'], num_workers=num_workers)
+        if self.Dataset:
+            dataset = self.Dataset(root=self.path.dataset_path(), transform=self.options.test.transform, train=False)
+        else:
+            dataset = torchvision.datasets.CIFAR10(root=self.path.dataset_root,
+                                                   train=False,
+                                                   transform=self.options.test.transform,
+                                                   download=True)
+
+        testloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
+                                                 shuffle=self.options.test.shuffle, num_workers=num_workers)
         net = self.net
         cuda = self.cuda
         if cuda:
@@ -153,45 +188,28 @@ class NetShell:
             total += truth.size(0)
             correct += (predicted == truth).sum()
         acc = 100.0 * correct.float() / total
-        print(f'Accuracy of the network on the test dataset: {acc:.2f} %')
+        print(f'Accuracy of the network on the test dataset_root: {acc:.2f} %')
         return acc
 
-    def load_dataset(self, Dataset):
-        self.dataset['train'] = Dataset(root=self.path['dataset_root'] + '/' + Dataset.name,
-                                        transform=self.transform['train'], train=True)
-        self.dataset['test'] = Dataset(root=self.path['dataset_root'] + '/' + Dataset.name,
-                                       transform=self.transform['test'], train=False)
-
-    def save(self, save_optimizer=True, save_state=True):
+    def save(self):
         pkg = {'net': self.net}
         suffix = 'n'
-        if save_optimizer:
+        if self.options.save.optimizer:
             pkg['optimizer'] = self.optimizer.state_dict()
             suffix += 'o'
-        if save_state:
+        if self.options.save.state:
             pkg['state'] = self.state
             suffix += 's'
         suffix += '.sav'
         nhash = self.net_hash()
-        fp = f"{self.path['save']}/{nhash}.{suffix}"
+        fp = f"{self.path.save_path()}/{nhash}.{suffix}"
         torch.save(pkg, fp)
         print(f'saved as {fp}')
 
-    def net_hash(self, special_mark=None):
+    def net_hash(self):
+        special_mark = self.state.get('special_mark')
         if special_mark:
             special_mark = f'x{special_mark}'
         else:
             special_mark = ''
         return f"{self.net._get_name()}{special_mark}_ep{self.state['epoch']}_{self.state['iter']}"
-
-
-if __name__ == '__main__':
-    # net = LeNet()
-    # ns = NetShell(net)
-
-    ns = NetShell.sav_loader(auto_load_dir='cookie/save/')
-    ns.test()
-
-    # ns.save_every['epoch'] = 10
-    # ns.early_stop_max = 2
-    # ns.train(batch_size=64, checkpoint=400, early_stop=True)

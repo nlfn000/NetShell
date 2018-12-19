@@ -56,21 +56,22 @@ class AGG4k(data.Dataset):
 
 
 if __name__ == '__main__':
-    # labels = ['amusement', 'contentment', 'excitement', 'anger', 'awe', 'disgust', 'sadness', 'fear']
-    # target_path = 'cookie/data/AGG4k/origin'
-    # if not os.path.exists(target_path):
-    #     os.makedirs(target_path)
-    #     os.makedirs(target_path + '/train')
-    #     os.makedirs(target_path + '/test')
-    # path = 'data/AGG4k'
-    # records = gen_records(labels, path + '/train')
-    # gen_cookie(records, target_path + '/train')
-    # records = gen_records(labels, path + '/test')
-    # gen_cookie(records, target_path + '/test')
-    # from utils.rescale import rescale_img
-    #
-    # target_path = target_path.replace('/origin', '')
-    # rescale_size = 224
-    # rescale_img(target_path + '/origin', target_path + f'/{rescale_size}x', size=rescale_size)
+    project_root = '../..'
+    labels = ['amusement', 'contentment', 'excitement', 'anger', 'awe', 'disgust', 'sadness', 'fear']
+    target_path = project_root + '/cookie/data/AGG4k/origin'
+    if not os.path.exists(target_path):
+        os.makedirs(target_path)
+        os.makedirs(target_path + '/train')
+        os.makedirs(target_path + '/test')
+    path = project_root + '/dataset_root/AGG4k'
+    records = gen_records(labels, path + '/train')
+    gen_cookie(records, target_path + '/train')
+    records = gen_records(labels, path + '/test')
+    gen_cookie(records, target_path + '/test')
+    from utils.rescale import rescale_img
 
-    agg = AGG4k('cookie/data/AGG4k', scale=224)
+    target_path = target_path.replace('/origin', '')
+    rescale_size = 224
+    rescale_img(target_path + '/origin', target_path + f'/{rescale_size}x', size=rescale_size)
+
+    # agg = AGG4k(project_root+'/cookie/data/AGG4k', scale=224)
