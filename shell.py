@@ -7,7 +7,7 @@ from torch import optim
 from torch.autograd import Variable
 from torchvision.transforms import transforms
 
-from blueprints.LeNet import LeNet
+from models.LeNet import LeNet
 
 
 class NetShell:
@@ -16,7 +16,7 @@ class NetShell:
         [transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
     @staticmethod
-    def sav_loader(path=None, auto_load_dir=None):
+    def sav_loader(path=None, auto_load_dir=None, Dataset=None):
         if auto_load_dir:
             files = os.listdir(auto_load_dir)
             files.sort()
@@ -24,7 +24,7 @@ class NetShell:
         with open(path, 'rb') as f:
             sav = torch.load(f)
         net = sav['net']
-        ns = NetShell(net)
+        ns = NetShell(net, Dataset=Dataset)
         state = sav.get('state')
         if state:
             ns.state = state
@@ -33,14 +33,14 @@ class NetShell:
             ns.optimizer.load_state_dict(optimizer)
         return ns
 
-    def __init__(self, net, Dataset=None, criterion=torch.nn.CrossEntropyLoss()):
+    def __init__(self, net, Dataset=None, save_path=None, criterion=torch.nn.CrossEntropyLoss()):
         self.net = net
         self.optimizer = optim.SGD(self.net.parameters(), lr=0.001, momentum=0.9)
         self.criterion = criterion
         self.path = {
             'dataset': None,
             'dataset_root': 'cookie/data',
-            'save': 'cookie/save',
+            'save': save_path if save_path else 'cookie/save',
         }
         for fp in self.path.values():
             if fp and not os.path.exists(fp):
@@ -59,7 +59,7 @@ class NetShell:
         else:
             self.dataset['train'] = torchvision.datasets.CIFAR10(root=self.path['dataset_root'],
                                                                  transform=self.transform['train'], download=True)
-            self.dataset['test'] = torchvision.datasets.CIFAR10(root=self.path['dataset_root'],
+            self.dataset['test'] = torchvision.datasets.CIFAR10(root=self.path['dataset_root'], train=False,
                                                                 transform=self.transform['test'], download=True)
 
         self.shuffle = {
@@ -153,11 +153,14 @@ class NetShell:
             total += truth.size(0)
             correct += (predicted == truth).sum()
         acc = 100.0 * correct.float() / total
-        print(f'Accuracy of the network on the test dataset: {acc}.2f%')
+        print(f'Accuracy of the network on the test dataset: {acc:.2f} %')
         return acc
 
     def load_dataset(self, Dataset):
-        pass
+        self.dataset['train'] = Dataset(root=self.path['dataset_root'] + '/' + Dataset.name,
+                                        transform=self.transform['train'], train=True)
+        self.dataset['test'] = Dataset(root=self.path['dataset_root'] + '/' + Dataset.name,
+                                       transform=self.transform['test'], train=False)
 
     def save(self, save_optimizer=True, save_state=True):
         pkg = {'net': self.net}
